@@ -1,0 +1,11 @@
+Metadata-Version: 2.4
+Name: twins-aoai-local
+Version: 0.1.0
+Summary: Local SQLite host for the Azure OpenAI digital twin
+License: MIT
+Requires-Python: >=3.11
+Requires-Dist: flask<4.0,>=3.0
+Requires-Dist: twins-aoai>=0.1.0
+Requires-Dist: twins-local>=0.2.0
+Provides-Extra: dev
+Requires-Dist: pytest>=8.0; extra == "dev"

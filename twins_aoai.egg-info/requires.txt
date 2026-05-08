@@ -1,0 +1,10 @@
+flask<4.0,>=3.0
+requests<3.0,>=2.31
+twins-local>=0.2.0
+PyJWT[crypto]<3.0,>=2.8
+cryptography>=42.0
+
+[dev]
+pytest>=8.0
+httpx>=0.27
+openai>=1.50

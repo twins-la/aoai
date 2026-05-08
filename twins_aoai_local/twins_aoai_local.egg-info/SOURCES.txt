@@ -1,0 +1,7 @@
+pyproject.toml
+twins_aoai_local.egg-info/PKG-INFO
+twins_aoai_local.egg-info/SOURCES.txt
+twins_aoai_local.egg-info/dependency_links.txt
+twins_aoai_local.egg-info/entry_points.txt
+twins_aoai_local.egg-info/requires.txt
+twins_aoai_local.egg-info/top_level.txt

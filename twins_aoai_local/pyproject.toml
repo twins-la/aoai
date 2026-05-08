@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "twins-aoai-local"
+version = "0.1.0"
+description = "Local SQLite host for the Azure OpenAI digital twin"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+dependencies = [
+    "flask>=3.0,<4.0",
+    "twins-aoai>=0.1.0",
+    "twins-local>=0.2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+[project.scripts]
+twins-aoai-local = "twins_aoai_local.host:main"
+
+[tool.setuptools.packages.find]
+include = ["twins_aoai_local*"]
