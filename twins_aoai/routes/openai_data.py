@@ -69,6 +69,82 @@ def _resolve_deployment(deployment_id: str):
     return deployment, None
 
 
+def _stream_response(
+    *,
+    response_id: str,
+    model: str,
+    output_text: str,
+    input_tokens: int,
+    output_tokens: int,
+) -> Iterator[bytes]:
+    """Yield Azure-OpenAI-Responses-API SSE events for `stream=true` requests.
+
+    Documented sequence (https://learn.microsoft.com/en-us/azure/
+    ai-services/openai/reference#responses, retrieved 2026-05-09):
+        event: response.created            data: {response in_progress}
+        event: response.output_item.added  data: {empty message item}
+        event: response.output_text.delta  data: {item_id, delta}  (1+)
+        event: response.output_item.done   data: {full message item}
+        event: response.completed          data: {full final response}
+
+    Closes twins-la/aoai#3.
+    """
+    full_id = f"resp_{response_id}"
+    item_id = f"msg_{response_id}"
+
+    in_progress = {
+        "id": full_id,
+        "object": "response",
+        "created_at": now_unix(),
+        "status": "in_progress",
+        "model": model,
+    }
+    yield f"event: response.created\ndata: {json.dumps(in_progress)}\n\n".encode("utf-8")
+
+    item_skeleton = {
+        "id": item_id,
+        "type": "message",
+        "role": "assistant",
+        "content": [],
+    }
+    yield (
+        f"event: response.output_item.added\n"
+        f"data: {json.dumps({'item': item_skeleton})}\n\n"
+    ).encode("utf-8")
+
+    # Split output_text into ~5-character chunks for the delta stream.
+    if output_text:
+        chunks = [output_text[i : i + 5] for i in range(0, len(output_text), 5)]
+    else:
+        chunks = [""]
+    for chunk in chunks:
+        delta = {"item_id": item_id, "delta": chunk}
+        yield f"event: response.output_text.delta\ndata: {json.dumps(delta)}\n\n".encode("utf-8")
+
+    full_item = {
+        "id": item_id,
+        "type": "message",
+        "role": "assistant",
+        "content": [{"type": "output_text", "text": output_text}],
+    }
+    yield (
+        f"event: response.output_item.done\n"
+        f"data: {json.dumps({'item': full_item})}\n\n"
+    ).encode("utf-8")
+
+    final_response = build_response(
+        response_id=response_id,
+        model=model,
+        output_text=output_text,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+    )
+    yield (
+        f"event: response.completed\n"
+        f"data: {json.dumps({'response': final_response})}\n\n"
+    ).encode("utf-8")
+
+
 def _stream_chat_completion(
     *, completion_id: str, model: str, content_text: str
 ) -> Iterator[bytes]:
@@ -272,17 +348,22 @@ def responses(resource_id: str):
     api_version = request.args.get("api-version", "")
     output_text = build_synthetic_response_text(raw_input, deployment["model"])
     response_id = generate_response_id()
+    input_tokens = count_tokens_text(json.dumps(raw_input, default=str))
+    output_tokens = count_tokens_text(output_text)
 
     response = build_response(
         response_id=response_id,
         model=deployment["model"],
         output_text=output_text,
-        input_tokens=count_tokens_text(json.dumps(raw_input, default=str)),
-        output_tokens=count_tokens_text(output_text),
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
     )
+    # Persist a synthetic non-streaming snapshot regardless of stream
+    # mode — log-driven dashboards see one row per request, even on
+    # stream. Mirrors the chat-completions pattern.
     _persist_request(
         deployment_id=deployment["deployment_id"],
-        kind="response",
+        kind="response.stream" if body.get("stream") else "response",
         request_body=body,
         response_body=response,
     )
@@ -292,8 +373,24 @@ def responses(resource_id: str):
         plane="data",
         operation="data.responses.create",
         resource={"type": "deployment", "id": deployment["deployment_id"]},
-        details={"model": deployment["model"], "api_version": api_version},
+        details={
+            "model": deployment["model"],
+            "api_version": api_version,
+            "stream": bool(body.get("stream")),
+        },
     )
+
+    if body.get("stream"):
+        # Closes twins-la/aoai#3 — SSE streaming for /openai/responses.
+        generator = _stream_response(
+            response_id=response_id,
+            model=deployment["model"],
+            output_text=output_text,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+        )
+        return Response(generator, mimetype="text/event-stream")
+
     return response
 
 
