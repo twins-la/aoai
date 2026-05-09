@@ -94,15 +94,8 @@ def ensure_keypair(storage, resource_id: str) -> dict:
     if none exists. Returns ``{kid, private_pem, public_pem}``.
 
     Idempotent — safe to call from any route handler that needs the key
-    (data-plane AAD validation, JWKS publication, OAuth token issue).
+    (data-plane AAD validation, JWKS publication, OAuth token issue) and
+    race-free under concurrent first-resource traffic: the storage layer
+    serializes check-and-create via ``get_or_create_signing_key``.
     """
-    existing = storage.get_signing_key(resource_id)
-    if existing:
-        return existing
-    kid, private_pem, public_pem = generate_keypair_pem()
-    return storage.put_signing_key(
-        resource_id=resource_id,
-        kid=kid,
-        private_pem=private_pem,
-        public_pem=public_pem,
-    )
+    return storage.get_or_create_signing_key(resource_id, generate_keypair_pem)

@@ -355,6 +355,35 @@ class SQLiteStorage(TwinStorage):
             "public_pem": public_pem,
         }
 
+    def get_or_create_signing_key(self, resource_id: str, generator) -> dict:
+        # `self._lock` is held across the entire SELECT-then-INSERT, so two
+        # concurrent threads cannot both observe "no key" and both generate.
+        # See twins-la/aoai#2 for the race that motivated this primitive.
+        with self._lock:
+            conn = self._get_conn()
+            try:
+                row = conn.execute(
+                    "SELECT resource_id, kid, private_pem, public_pem "
+                    "FROM signing_keys WHERE resource_id = ?",
+                    (resource_id,),
+                ).fetchone()
+                if row:
+                    return dict(row)
+                kid, private_pem, public_pem = generator()
+                conn.execute(
+                    "INSERT INTO signing_keys (resource_id, kid, private_pem, public_pem) VALUES (?, ?, ?, ?)",
+                    (resource_id, kid, private_pem, public_pem),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+        return {
+            "resource_id": resource_id,
+            "kid": kid,
+            "private_pem": private_pem,
+            "public_pem": public_pem,
+        }
+
     # -- requests --
 
     def create_request(self, data: dict) -> dict:

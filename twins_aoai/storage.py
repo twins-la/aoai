@@ -118,6 +118,18 @@ class TwinStorage(ABC):
     ) -> dict:
         """Persist the resource's signing keypair."""
 
+    @abstractmethod
+    def get_or_create_signing_key(self, resource_id: str, generator) -> dict:
+        """Atomically load the resource's signing keypair, generating one if none
+        exists. The check-and-create MUST be serialized so concurrent first-time
+        callers against the same ``resource_id`` produce exactly one keypair.
+
+        ``generator`` is called only when no key is present and must return a
+        ``(kid, private_pem, public_pem)`` tuple. Returns the dict shape of
+        ``get_signing_key``.
+
+        Closes twins-la/aoai#2 (cold-start race on per-resource keypair)."""
+
     # -- Requests history --
 
     @abstractmethod
