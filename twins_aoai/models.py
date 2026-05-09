@@ -90,6 +90,83 @@ def build_chat_completion(
     }
 
 
+def _extract_response_input_text(input_value) -> str:
+    """Pull a plain-text echo out of the Responses API ``input`` field.
+
+    ``input`` accepts either a string or a list of input items per
+    https://learn.microsoft.com/en-us/azure/ai-services/openai/reference#responses.
+    Items can be ``{"type": "input_text", "text": "..."}`` or shorthand
+    role-content pairs; mirror enough of the shape that consumer code
+    using either form sees a non-empty ``output_text`` back.
+    """
+    if isinstance(input_value, str):
+        return input_value
+    if isinstance(input_value, list):
+        for item in reversed(input_value):
+            if isinstance(item, dict):
+                if item.get("type") == "input_text" and isinstance(item.get("text"), str):
+                    return item["text"]
+                content = item.get("content")
+                if isinstance(content, str):
+                    return content
+                if isinstance(content, list):
+                    for part in content:
+                        if isinstance(part, dict) and part.get("type") in ("input_text", "text"):
+                            text = part.get("text", "")
+                            if isinstance(text, str) and text:
+                                return text
+    return ""
+
+
+def build_synthetic_response_text(input_value, model: str) -> str:
+    """Deterministic synthetic Responses-API output text."""
+    last = _extract_response_input_text(input_value)
+    if not last:
+        return f"[aoai-twin:{model}] hello — no input provided."
+    return f"[aoai-twin:{model}] echoing: {last}"
+
+
+def build_response(
+    *,
+    response_id: str,
+    model: str,
+    output_text: str,
+    input_tokens: int,
+    output_tokens: int,
+    status: str = "completed",
+) -> dict:
+    """Azure OpenAI Responses-API ``response`` object.
+
+    Mirrors the documented shape (https://learn.microsoft.com/en-us/azure/
+    ai-services/openai/reference#responses, retrieved 2026-05-09): a
+    flat envelope with an ``output`` array of message-shaped items. The
+    twin emits a single message item whose content is one ``output_text``
+    block — sufficient for SDK round-tripping without committing to a
+    full tool-call / multi-turn shape.
+    """
+    return {
+        "id": f"resp_{response_id}",
+        "object": "response",
+        "created_at": now_unix(),
+        "status": status,
+        "model": model,
+        "output": [
+            {
+                "type": "message",
+                "role": "assistant",
+                "content": [
+                    {"type": "output_text", "text": output_text},
+                ],
+            }
+        ],
+        "usage": {
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "total_tokens": input_tokens + output_tokens,
+        },
+    }
+
+
 def build_completion(
     *,
     completion_id: str,

@@ -46,6 +46,11 @@ def generate_completion_id() -> str:
     return secrets.token_urlsafe(20)
 
 
+def generate_response_id() -> str:
+    """Tail of a Responses-API id (the ``resp_<id>`` form Azure uses)."""
+    return secrets.token_urlsafe(20)
+
+
 def generate_request_id() -> str:
     """History-row id; not surfaced on the wire."""
     return secrets.token_urlsafe(16)

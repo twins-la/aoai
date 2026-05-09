@@ -34,6 +34,18 @@ def aoai_not_found(message: str = "Resource not found"):
     return aoai_error("DeploymentNotFound", message, 404)
 
 
+def aoai_path_not_found(message: str = "Resource not found"):
+    """Generic 404 for unknown ``/openai/...`` paths.
+
+    Distinct from :func:`aoai_not_found` (which uses ``DeploymentNotFound``)
+    because the consumer's mental model differs: a missing deployment is a
+    state error against a known endpoint, whereas a missing path means the
+    endpoint itself is absent. Real Azure returns the generic ``NotFound``
+    code in the latter case.
+    """
+    return aoai_error("NotFound", message, 404)
+
+
 def aoai_bad_request(message: str):
     return aoai_error("BadRequest", message, 400)
 

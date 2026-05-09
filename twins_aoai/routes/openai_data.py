@@ -21,18 +21,20 @@ from typing import Iterator
 from flask import Blueprint, Response, g, request
 
 from ..auth import require_aoai_data_auth, require_resource
-from ..errors import aoai_bad_request, aoai_not_found
+from ..errors import aoai_bad_request, aoai_not_found, aoai_path_not_found
 from ..logs import emit
 from ..models import (
     build_chat_completion,
     build_completion,
     build_embedding_response,
+    build_response,
     build_synthetic_chat_text,
+    build_synthetic_response_text,
     count_tokens_text,
     now_unix,
     synthetic_embedding,
 )
-from ..sids import generate_completion_id, generate_request_id
+from ..sids import generate_completion_id, generate_request_id, generate_response_id
 
 data_bp = Blueprint("openai_data", __name__)
 
@@ -236,6 +238,66 @@ def completions(resource_id: str, deployment_id: str):
 
 
 @data_bp.route(
+    "/<resource_id>/openai/responses",
+    methods=["POST"],
+)
+@require_resource
+@require_aoai_data_auth
+def responses(resource_id: str):
+    """Azure OpenAI Responses API.
+
+    Reference: https://learn.microsoft.com/en-us/azure/ai-services/openai/
+    reference#responses (retrieved 2026-05-09). Unlike chat/completions,
+    the deployment is named in the body's ``model`` field rather than the
+    URL path; the twin treats that field as the deployment identifier.
+    """
+    body = request.get_json(silent=True) or {}
+    if not isinstance(body, dict):
+        return aoai_bad_request("Request body must be a JSON object")
+
+    model = body.get("model")
+    if not isinstance(model, str) or not model:
+        return aoai_bad_request("'model' is required")
+
+    raw_input = body.get("input")
+    if raw_input is None:
+        return aoai_bad_request("'input' is required")
+    if not isinstance(raw_input, (str, list)):
+        return aoai_bad_request("'input' must be a string or list of input items")
+
+    deployment, err = _resolve_deployment(model)
+    if err is not None:
+        return err
+
+    api_version = request.args.get("api-version", "")
+    output_text = build_synthetic_response_text(raw_input, deployment["model"])
+    response_id = generate_response_id()
+
+    response = build_response(
+        response_id=response_id,
+        model=deployment["model"],
+        output_text=output_text,
+        input_tokens=count_tokens_text(json.dumps(raw_input, default=str)),
+        output_tokens=count_tokens_text(output_text),
+    )
+    _persist_request(
+        deployment_id=deployment["deployment_id"],
+        kind="response",
+        request_body=body,
+        response_body=response,
+    )
+    emit(
+        g.storage,
+        tenant_id=g.tenant_id,
+        plane="data",
+        operation="data.responses.create",
+        resource={"type": "deployment", "id": deployment["deployment_id"]},
+        details={"model": deployment["model"], "api_version": api_version},
+    )
+    return response
+
+
+@data_bp.route(
     "/<resource_id>/openai/deployments/<deployment_id>/embeddings",
     methods=["POST"],
 )
@@ -282,3 +344,37 @@ def embeddings(resource_id: str, deployment_id: str):
         details={"model": model, "n_inputs": len(items)},
     )
     return response
+
+
+# ---- Catch-all for unknown /<resource>/openai/* paths ------------------
+#
+# Without this, Flask falls through to its default HTML 404. Real Azure
+# OpenAI returns a JSON envelope on every unknown path under /openai/...
+# so consumer SDKs can parse the error. Registered last so the more
+# specific data-plane routes above always win in URL matching.
+#
+# Intentionally NO auth decorators: real Azure returns the same 404
+# envelope whether the caller is authenticated or not (in fact it
+# doesn't get far enough to authenticate against an absent endpoint).
+
+
+@data_bp.route(
+    "/<resource_id>/openai/<path:rest>",
+    methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+)
+def unknown_openai_path(resource_id: str, rest: str):
+    storage = getattr(g, "storage", None)
+    if storage is not None:
+        emit(
+            storage,
+            tenant_id=getattr(g, "tenant_id", "__anonymous__"),
+            plane="data",
+            operation="data.unknown.path",
+            resource={"type": "openai_path", "id": rest},
+            outcome="failure",
+            reason="path-not-implemented",
+            details={"method": request.method, "path": f"/{resource_id}/openai/{rest}"},
+        )
+    return aoai_path_not_found(
+        f"The API endpoint /{resource_id}/openai/{rest} does not exist"
+    )
