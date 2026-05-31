@@ -419,6 +419,8 @@ def embeddings(resource_id: str, deployment_id: str):
             return aoai_bad_request("'input' must not be an empty list")
     else:
         return aoai_bad_request("'input' must be a string or list of strings")
+    if len(items) > 2048:
+        return aoai_bad_request("'input' must contain at most 2048 items")
 
     model = deployment["model"]
     vectors = [synthetic_embedding(text) for text in items]

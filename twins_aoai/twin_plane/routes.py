@@ -225,8 +225,8 @@ def create_tenant():
 @twin_plane_bp.route("/logs", methods=["GET"])
 @require_tenant_or_admin
 def list_logs():
-    limit = request.args.get("limit", 100, type=int)
-    offset = request.args.get("offset", 0, type=int)
+    limit = max(1, min(request.args.get("limit", 100, type=int), 1000))
+    offset = max(0, request.args.get("offset", 0, type=int))
     tenant_id = None if g.is_admin else g.tenant_id
     entries = g.storage.list_logs(limit=limit, offset=offset, tenant_id=tenant_id)
     return jsonify({"logs": entries, "limit": limit, "offset": offset})

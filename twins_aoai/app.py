@@ -50,6 +50,9 @@ def create_app(
     is_cloud = bool(config.get("is_cloud", False))
 
     app = Flask(__name__)
+    # Cap request body size so authenticated callers cannot persist arbitrarily
+    # large bodies into the shared `requests` table (Flask returns 413).
+    app.config["MAX_CONTENT_LENGTH"] = 4 * 1024 * 1024  # 4 MB
     app.config["TWIN_STORAGE"] = storage
     app.config["TWIN_TENANTS"] = tenants
     app.config["TWIN_BASE_URL"] = base_url
@@ -65,6 +68,13 @@ def create_app(
         g.base_url = app.config["TWIN_BASE_URL"]
         g.admin_token = app.config["TWIN_ADMIN_TOKEN"]
         g.is_cloud = app.config["TWIN_IS_CLOUD"]
+
+    @app.after_request
+    def set_security_headers(response):
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        return response
 
     # Per-resource keypairs are created lazily on first JWKS / token /
     # AAD-validate request (see crypto.ensure_keypair).
