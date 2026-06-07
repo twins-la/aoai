@@ -1,4 +1,4 @@
-# twins-aoai
+# Azure OpenAI Twin
 
 A digital twin of the **Azure OpenAI Service** for [twins.la](https://twins.la).
 
@@ -93,3 +93,7 @@ The local host uses SQLite at `~/.twins/aoai.sqlite3`. Override with
 * `twins_aoai/` — the twin (Flask app, blueprints, storage ABC).
 * `twins_aoai_local/` — local SQLite host.
 * `tests/smoke/` — in-process Flask test-client suite.
+
+## License
+
+MIT — see [LICENSE](LICENSE).

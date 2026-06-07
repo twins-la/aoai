@@ -1,2 +1,0 @@
-[console_scripts]
-twins-aoai-local = twins_aoai_local.host:main
